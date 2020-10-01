@@ -18,13 +18,14 @@ No rights reserved. Please feel free to copy and enhance.
 1. ProdTestGen.py - Python program that commands RailTest to function like the 500 series ProdTestGen
     - Production testing utility that will send 10 NOPs when a DUT sends a NIF
     - The number of ACKs is returned and can be used for a quick Pass/Fail test of the RF
+    - 
+
+# Future Utilities (no schedule so don't hold me to them!)
 2. ScopeToggle - Toggle 8-bit value on a GPIO. A fast real-time UART on a oscilliscope for debug.
 3. LfrcoCalib - LFRCO calibration to the HFXO which achieves ??? ppm
 4. UARTDrv - UART Driver - Initialization of the USART into a simple UART
 5. SPIDrv - SPI Driver - Initialization of the USART into a simple SPI interface
-9. More to come...
-
-PRIVATE REPOSITORY for now. Will make it broadly available once the functions have been proven to work...
+9. What other tools do you need???
 
 # Contacts 
 
