@@ -276,7 +276,7 @@ class ZWaveNVM500():
         pkt=self.Send2ZWave(FUNC_ID_SERIAL_API_GET_INIT_DATA,True)
         if pkt!=None and len(pkt)>33:
             print("NodeIDs=", end='')
-            for k in [4,28+4]:
+            for k in range(4,28+4):
                 j=pkt[k] # this is the first 8 nodes
                 for i in range(0,8):
                     if (1<<i)&j:
