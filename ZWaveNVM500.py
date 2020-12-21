@@ -43,6 +43,9 @@ FUNC_ID_SERIAL_API_STARTED          = b'\x0A'
 FUNC_ID_ZW_SET_RF_RECEIVE_MODE      = b'\x10'
 FUNC_ID_ZW_SEND_DATA                = b'\x13'
 FUNC_ID_ZW_GET_VERSION              = b'\x15'
+FUNC_ID_MEMORY_GET_ID               = b'\x20'
+FUNC_ID_MEMORY_GET_BUFFER           = b'\x23'
+FUNC_ID_MEMORY_PUT_BUFFER           = b'\x24'
 FUNC_ID_NVM_EXT_READ_LONG_BUFFER    = b'\x2A'
 FUNC_ID_NVM_EXT_WRITE_LONG_BUFFER   = b'\x2B'
 FUNC_ID_NVM_EXT_READ_LONG_BYTE      = b'\x2C'
@@ -136,9 +139,26 @@ ZWAVE_VER_DECODE = {# Z-Wave version to SDK decoder: https://www.silabs.com/prod
         b"3.83" : "SDK 6.51.00 12/2013",
         b"3.79" : "SDK 6.50.01        ",
         b"3.71" : "SDK 6.50.00        ",
+        b"3.67" : "SDK 4.55           ",
+        b"3.52" : "SDK 4.54.02        ",
+        b"3.42" : "SDK 4.54.01        ",
+        b"3.40" : "SDK 4.54.00        ",
+        b"3.36" : "SDK 4.53.01        ",
         b"3.35" : "SDK 6.10.00        ",
+        b"3.34" : "SDK 4.53.00        ",
         b"3.41" : "SDK 6.02.00        ",
-        b"3.37" : "SDK 6.01.03        "
+        b"3.37" : "SDK 6.01.03        ",
+        b"3.33" : "SDK 6.01.02        ",
+        b"3.28" : "SDK 5.03           ",
+        b"3.22" : "SDK 4.52.01        ",
+        b"3.20" : "SDK 4.52.00        ",
+        b"3.10" : "SDK 6.01.00        ",
+        b"2.97" : "SDK 4.51           ",
+        b"2.78" : "SDK 5.02 Patch 3   ",
+        b"2.67" : "SDK 4.28           ",
+        b"2.48" : "SDK 5.02           ",
+        b"2.36" : "SDK 5.01           ",
+        b"1.97" : "SDK 4.20           "
         }
 
 class ZWaveNVM500():
@@ -177,8 +197,8 @@ class ZWaveNVM500():
             retval= self.UZB.read()
         else:
             retval= None
-            print("got nothing")
-        if DEBUG>9: print(" {:02X}".format(ord(retval)), end='') # this is handy to see all the bytes being received
+            if DEBUG>3: print("got nothing from UART")
+        if DEBUG>9 and retval!=None: print(" {:02X}".format(ord(retval)), end='') # this is handy to see all the bytes being received
         return retval
 
     def GetZWave( self, timeout=5000):
@@ -186,7 +206,7 @@ class ZWaveNVM500():
         pkt=b''
         c=self.GetRxChar(timeout)
         if c == None:
-            if DEBUG>1: print("GetZWave Timeout!")
+            if DEBUG>2: print("GetZWave Timeout!")
             return None
         while c!=SOF:   # get synced on the SOF
             if DEBUG>5: print("SerialAPI Not SYNCed {:02X}".format(ord(c)))
@@ -282,20 +302,46 @@ class ZWaveNVM500():
                     if (1<<i)&j:
                         print("{},".format(i+1+ 8*(k-4)),end='')
             print(" ",flush=True)
+        pkt=self.Send2ZWave(FUNC_ID_MEMORY_GET_ID ,True) # get the HomeID which is usually bytes 6-9 in the NVM
+        if pkt!=None:
+            self.HomeID=pkt[1:5]
+            self.NodeID=pkt[5]
+        print("HomeID={:02x} {:02x} {:02x} {:02x} NodeID={:02x}".format(self.HomeID[0],self.HomeID[1],self.HomeID[2],self.HomeID[3],self.NodeID),flush=True)
 
     def FetchNVM(self):
         ''' Read the NVM and return an IntelHex (self.NVM) filled with the data
         Only the first 16K bytes are read out which is where the network information is stored.
         '''
-        bufsize=128
+        bufsize=32      # some of the SDKs have a max buffer size of 64 bytes including the checksum & SOF
         addr=0
+        old=False       # old is true when the SerialAPI is old and doesn't support the EXT commands. 
+        FoundNodeID=False
         print("Working ", end='')
         for index in range(0,16*1024,bufsize):
             pkt=self.Send2ZWave(FUNC_ID_NVM_EXT_READ_LONG_BUFFER + b'\x00' + bytes([int(index/256)]) + bytes([index%256]) +b'\x00' + bytes([bufsize]) ,True) # appears the largest buffer you can ask for is about 128 bytes
-            for i in range(1,bufsize+1):
+            if pkt == None:
+                old=True
+                break
+            for i in range(1,bufsize+1): # i=0 is the FUNC_ID so skip that
                 self.NVM[addr]=pkt[i]
                 addr+=1
             print(".",end='',flush=True)        
+        if old:     # try to find the NVM data by wrapping around using the normal READ_BUFFER commands. If the EEPROM is larger than 64K then there is no way to pull out the NVM via SerialAPI.
+            for index in range(0,64*1024,bufsize):
+                pkt=self.Send2ZWave(FUNC_ID_MEMORY_GET_BUFFER + bytes([int(index/256)]) + bytes([index%256]) + bytes([bufsize]) ,True) # we rely on the wrap around of the NVM
+                #if DEBUG>1: print("pkt[{:04x}]={}".format(index,''.join("%02x " % b for b in pkt)))
+                if self.HomeID in pkt:
+                    print("Found the HomeID at {:0X}".format(index))
+                    IndexOfNodeID=index
+                    FoundNodeID=True
+                    break
+            if FoundNodeID:
+                for index in range(IndexOfNodeID,16*1024+IndexOfNodeID,bufsize):
+                    pkt=self.Send2ZWave(FUNC_ID_MEMORY_GET_BUFFER + bytes([int(index/256)]) + bytes([index%256]) + bytes([bufsize]) ,True) # we rely on the wrap around of the NVM
+                    for i in range(1,bufsize+1): # i=0 is the FUNC_ID so skip that
+                        self.NVM[addr]=pkt[i]
+                        addr+=1
+                    print("+",end='',flush=True)        
         print(" done")
 
     def usage():
