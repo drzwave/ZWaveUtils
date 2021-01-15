@@ -30,7 +30,9 @@ import time
 import os
 from struct            import * # PACK
 import networkx as nx           # "pip install networkx" if you don't already have it
-
+import matplotlib.pyplot as plt
+from networkx.drawing.nx_pydot import graphviz_layout
+#from networkx.drawing.nx_agraph import graphviz_layout
 
 #COMPORT       = "/dev/ttyAMA0" # Serial port default - typically /dev/ttyACM0 on Linux
 COMPORT       = "COM7" # Serial port default - On Windows it will be via a COMxx port
@@ -58,6 +60,10 @@ FUNC_ID_NVM_EXT_WRITE_LONG_BYTE     = b'\x2D'
 FUNC_ID_ZW_ADD_NODE_TO_NETWORK      = b'\x4A'
 FUNC_ID_ZW_REMOVE_NODE_FROM_NETWORK = b'\x4B'
 FUNC_ID_ZW_FIRMWARE_UPDATE_NVM      = b'\x78'
+FUNC_ID_ZW_GET_ROUTING_TABLE_LINE   = b'\x80'
+
+GET_ROUTING_INFO_REMOVE_BAD         = b'\x80'
+GET_ROUTING_INFO_REMOVE_NON_REPS    = b'\x40'
 
 # Firmware Update NVM commands
 FIRMWARE_UPDATE_NVM_INIT            = b'\x00'
@@ -117,6 +123,7 @@ TXOPTS = bytes([TRANSMIT_OPTION_AUTO_ROUTE[0] | TRANSMIT_OPTION_ACK[0]])
 
 # See INS13954-12 section 7 Application Note: Z-Wave Protocol Versions on page 433
 ZWAVE_VER_DECODE = {# Z-Wave version to SDK decoder: https://www.silabs.com/products/development-tools/software/z-wave/embedded-sdk/previous-versions
+        b"7.15" : "SDK 7.15.01 12/2020",
         b"6.09" : "SDK 6.82.01 04/2020",
         b"6.08" : "SDK 6.82.00 Beta   ",
         b"6.07" : "SDK 6.81.06 07/2019",
@@ -312,16 +319,31 @@ class ZWaveNetX():
             self.NodeID=pkt[5]
         print("HomeID={:02x} {:02x} {:02x} {:02x} NodeID={:02x}".format(self.HomeID[0],self.HomeID[1],self.HomeID[2],self.HomeID[3],self.NodeID),flush=True)
 
+    def UnpackNodeMask(pkt):
+        ''' Unpack the 29 byte mask of nodeIDs and return a list of integers
+            Nodelists are a bytearray of 29 bytes where a 1 indicates NodeID. 
+            Ex: byte 0 bit 0=1, byte 0 bit 7=8, byte 1 bit 3=12.
+        '''
+        retval=[]
+        if pkt==None:
+            print("NodeMask NULL")
+            return(None)
+        #if len(pkt)<29: 
+        #    print("NodeMask Array too short {} {}".format(len(pkt),pkt))
+        #    return(None)
+        for k in range(0,len(pkt)):
+            j=pkt[k]
+            for i in range(0,8):
+                if (1<<i)&j:
+                    retval.append(int(i+1 + 8*k))
+        return(retval)
+
     def GetNodeIDList(self):
         ''' Pull the NodeIDs from the SerialAPI and return a list of NodeIDs '''
         retval=[]
         pkt=self.Send2ZWave(FUNC_ID_SERIAL_API_GET_INIT_DATA,True)
         if pkt!=None and len(pkt)>33:
-            for k in range(4,28+4):
-                j=pkt[k] # this is the first 8 nodes
-                for i in range(0,8):
-                    if (1<<i)&j:
-                        retval.append(int(i+1+ 8*(k-4)))
+            retval=ZWaveNetX.UnpackNodeMask(pkt[4:])
         return(retval)    
 
     def usage():
@@ -348,9 +370,33 @@ if __name__ == "__main__":
 
     # Extract the NodeList from the SerialAPI
     self.NodeIDList = self.GetNodeIDList()
-    print("\n\rnodelist={}".format(self.NodeIDList))
+    if DEBUG>8:print("\n\rnodelist={}".format(self.NodeIDList))
+    print("Node Count={}".format(len(self.NodeIDList)),flush=True)
 
     g.add_nodes_from(self.NodeIDList) # this works - but what is the next step? I need to add edges and then draw some sort of graph.
     print("g={}".format(g))
+    print(list(g.nodes))
+
+    # next step is to use ZW_GetROutingInfo which will return the neighbors (again in a 29 byte bit mask) of the neighbors of the desired node. Then plug that into as edges and draw it.
+    funcID=b'\x42'
+    NodeID=b'\x01'
+    pkt=self.Send2ZWave(FUNC_ID_ZW_GET_ROUTING_TABLE_LINE + NodeID + GET_ROUTING_INFO_REMOVE_BAD + GET_ROUTING_INFO_REMOVE_NON_REPS + funcID, True)
+    if DEBUG>8: print("pkt={}".format(''.join("%02x " % b for b in pkt)))
+    neighbors= ZWaveNetX.UnpackNodeMask(pkt[1:])
+    print(neighbors)
+    for i in neighbors:
+        g.add_edge(1,i)
+    NodeID=b'\x03'
+    pkt=self.Send2ZWave(FUNC_ID_ZW_GET_ROUTING_TABLE_LINE + NodeID + GET_ROUTING_INFO_REMOVE_BAD + GET_ROUTING_INFO_REMOVE_NON_REPS + funcID, True)
+    neighbors= ZWaveNetX.UnpackNodeMask(pkt[1:])
+    for i in neighbors:
+        g.add_edge(3,i)
+    print(list(g.edges))
+    #########GRRRRRRR - trying to install the 2.44 version of Graphviz but it just doesn't seem to work - there is no twopi executable...
+    #pos=graphviz_layout(g,prog="twopi", args="")
+    pos=graphviz_layout(g,prog="dot")
+    nx.draw(f, pos, node_size=20, alpha=0.5, node_color="blue", with_labels=False)
+    plot.axis("equal")
+    plt.show()
 
     exit()
