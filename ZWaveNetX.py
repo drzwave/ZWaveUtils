@@ -29,10 +29,12 @@ import sys
 import time
 import os
 from struct            import * # PACK
-import networkx as nx           # "pip install networkx" if you don't already have it
-import matplotlib.pyplot as plt
-from networkx.drawing.nx_pydot import graphviz_layout
-#from networkx.drawing.nx_agraph import graphviz_layout
+import networkx as nx           # "pip install networkx pygraphviz" if you don't already have it BUT FIRST install graphviz (graphviz.org)
+# note that graphviz failed to install on windows for version 2.44 in Jan 2021 - it does not include the neato or twopi applications needed - after several hours of trying to find a solution I moved development to a Raspberry Pi where things "just work".
+import matplotlib.pyplot as plt # "pip install matplotlib" if not already installed
+# might also need to "sudo apt-get install libatlas-base-dev" if you get an error about libf77blas.so.3
+#from networkx.drawing.nx_pydot import graphviz_layout  # this is an alternate wrapper for graphviz if the one below doesn't work
+from networkx.drawing.nx_agraph import graphviz_layout
 
 #COMPORT       = "/dev/ttyAMA0" # Serial port default - typically /dev/ttyACM0 on Linux
 COMPORT       = "COM7" # Serial port default - On Windows it will be via a COMxx port
@@ -379,24 +381,23 @@ if __name__ == "__main__":
 
     # next step is to use ZW_GetROutingInfo which will return the neighbors (again in a 29 byte bit mask) of the neighbors of the desired node. Then plug that into as edges and draw it.
     funcID=b'\x42'
-    NodeID=b'\x01'
-    pkt=self.Send2ZWave(FUNC_ID_ZW_GET_ROUTING_TABLE_LINE + NodeID + GET_ROUTING_INFO_REMOVE_BAD + GET_ROUTING_INFO_REMOVE_NON_REPS + funcID, True)
-    if DEBUG>8: print("pkt={}".format(''.join("%02x " % b for b in pkt)))
-    neighbors= ZWaveNetX.UnpackNodeMask(pkt[1:])
-    print(neighbors)
-    for i in neighbors:
-        g.add_edge(1,i)
-    NodeID=b'\x03'
-    pkt=self.Send2ZWave(FUNC_ID_ZW_GET_ROUTING_TABLE_LINE + NodeID + GET_ROUTING_INFO_REMOVE_BAD + GET_ROUTING_INFO_REMOVE_NON_REPS + funcID, True)
-    neighbors= ZWaveNetX.UnpackNodeMask(pkt[1:])
-    for i in neighbors:
-        g.add_edge(3,i)
+    print("NodeIDList={}".format(self.NodeIDList))
+    for node in self.NodeIDList:
+        NodeID=node.to_bytes(1,'big')
+        print("nodeID={} Node={}".format(NodeID,node))
+        pkt=self.Send2ZWave(FUNC_ID_ZW_GET_ROUTING_TABLE_LINE + NodeID + GET_ROUTING_INFO_REMOVE_BAD + GET_ROUTING_INFO_REMOVE_NON_REPS + funcID, True)
+        #if DEBUG>8: print("pkt={}".format(''.join("%02x " % b for b in pkt)))
+        neighbors= ZWaveNetX.UnpackNodeMask(pkt[1:])
+        #print(neighbors)
+        for i in neighbors:
+            g.add_edge(node,i)
     print(list(g.edges))
-    #########GRRRRRRR - trying to install the 2.44 version of Graphviz but it just doesn't seem to work - there is no twopi executable...
-    #pos=graphviz_layout(g,prog="twopi", args="")
-    pos=graphviz_layout(g,prog="dot")
-    nx.draw(f, pos, node_size=20, alpha=0.5, node_color="blue", with_labels=False)
-    plot.axis("equal")
+    pos=graphviz_layout(g,prog="twopi", args="")
+    plt.figure(figsize=(8,8))
+    #pos=graphviz_layout(g,prog="dot")
+    nx.draw(g, pos, node_size=10, alpha=0.5, node_color="blue", with_labels=True)
+    plt.axis("equal")
+    plt.savefig("network.png")
     plt.show()
 
     exit()
