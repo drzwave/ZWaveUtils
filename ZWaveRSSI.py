@@ -24,7 +24,7 @@ from struct            import * # PACK
 #COMPORT       = "/dev/ttyAMA0" # Serial port default - typically /dev/ttyACM0 on Linux
 COMPORT       = "COM7" # Serial port default - On Windows it will be via a COMxx port
 
-VERSION       = "0.9 - 3/18/2021"       # Version of this python program
+VERSION       = "0.91 - 3/22/2021"       # Version of this python program
 DEBUG         = 5     # [0-10] higher values print out more debugging info - 0=off
 
 # Handy defines mostly copied from ZW_transport_api.py
@@ -113,7 +113,7 @@ TXOPTS = bytes([TRANSMIT_OPTION_AUTO_ROUTE[0] | TRANSMIT_OPTION_ACK[0]])
 
 # See INS13954-12 section 7 Application Note: Z-Wave Protocol Versions on page 433
 ZWAVE_VER_DECODE = {# Z-Wave version to SDK decoder: https://www.silabs.com/products/development-tools/software/z-wave/embedded-sdk/previous-versions
-        b"7.15" : "SDK 7.15.01 12/2020",
+        b"7.15" : "SDK 7.15    12/2020",
         b"6.09" : "SDK 6.82.01 04/2020",
         b"6.08" : "SDK 6.82.00 Beta   ",
         b"6.07" : "SDK 6.81.06 07/2019",
@@ -289,21 +289,27 @@ class ZWaveRSSI():
             print("Unable to get SerialAPI capabilities - exiting")
             exit()
         (ver, rev, man_id, man_prod_type, man_prod_type_id, supported) = unpack("!2B3H32s", pkt[1:])
-        print("SerialAPI Ver={0}.{1}".format(ver,rev))   # SerialAPI version is different than the SDK version
-        print("Mfg={:04X}".format(man_id),end='')
+        print("SerialAPI Ver={0}.{1}".format(ver,rev), end='')   # SerialAPI version is different than the SDK version
+        print(" Mfg={:04X} ".format(man_id),end='')
         if man_id==0: 
-            print(" Silicon Labs")
-        else:
-            print("")
+            print("Silicon Labs ", end='')
         print("ProdID/TypeID={0:02X}:{1:02X}".format(man_prod_type,man_prod_type_id))
+        pkt=self.Send2ZWave(FUNC_ID_ZW_GET_PROTOCOL_VERSION,True)  # SDK version
+        (ProtMaj, ProtMin, ProtRev, ZAFmsb, ZAFlsb) = unpack("!5B", pkt[2:7])
+        print("Protocol  Ver={}.{}.{} ZAF={}.{}".format(ProtMaj, ProtMin, ProtRev, ZAFmsb,ZAFlsb))
         pkt=self.Send2ZWave(FUNC_ID_ZW_GET_VERSION,True)  # SDK version
         (VerStr, lib) = unpack("!12sB", pkt[1:])
         VersionKey=VerStr[-5:-1]
         if VersionKey in ZWAVE_VER_DECODE:
-            print("{} = {}".format(VersionKey,ZWAVE_VER_DECODE[VersionKey]))
+            print("{} = {}".format(VersionKey,ZWAVE_VER_DECODE[VersionKey]),end='')
         else:
-            print("Z-Wave version unknown = {}".format(VerStr))
-        print("Library={} {}".format(lib,libType[lib]))
+            print("Z-Wave version unknown = {}".format(VerStr),end='')
+        print(" Library={} {}".format(lib,libType[lib]))
+        pkt=self.Send2ZWave(FUNC_ID_MEMORY_GET_ID ,True) # get the HomeID which is usually bytes 6-9 in the NVM
+        if pkt!=None:
+            self.HomeID=pkt[1:5]
+            self.NodeID=pkt[5]
+        print("HomeID={:02x} {:02x} {:02x} {:02x} NodeID={:02x}".format(self.HomeID[0],self.HomeID[1],self.HomeID[2],self.HomeID[3],self.NodeID),flush=True)
         pkt=self.Send2ZWave(FUNC_ID_SERIAL_API_GET_INIT_DATA,True)
         if pkt!=None and len(pkt)>33:
             print("NodeIDs=", end='')
@@ -313,11 +319,6 @@ class ZWaveRSSI():
                     if (1<<i)&j:
                         print("{},".format(i+1+ 8*(k-4)),end='')
             print(" ",flush=True)
-        pkt=self.Send2ZWave(FUNC_ID_MEMORY_GET_ID ,True) # get the HomeID which is usually bytes 6-9 in the NVM
-        if pkt!=None:
-            self.HomeID=pkt[1:5]
-            self.NodeID=pkt[5]
-        print("HomeID={:02x} {:02x} {:02x} {:02x} NodeID={:02x}".format(self.HomeID[0],self.HomeID[1],self.HomeID[2],self.HomeID[3],self.NodeID),flush=True)
 
     def UnpackNodeMask(pkt):
         ''' Unpack the 29 byte mask of nodeIDs and return a list of integers
