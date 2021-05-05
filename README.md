@@ -22,6 +22,7 @@ No rights reserved. Please feel free to copy and enhance.
     - NVM data contains the Z-Wave Network HomeID/NodeIDs and routing tables
     - First step in upgrading a controller from a 500 series to 700 series without having to rebuild the network
 3. ZWaveRSSI.py - Python program that reads the background RSSI values via the SerialAPI
+4. zlf_combiner.sh - bash script that concatenates all \*.zlf trace files in the folder the script is run from into one file, `combined_trace.zlf`.
 
 # Future Utilities (no schedule so don't hold me to them!)
 2. ScopeToggle - Toggle 8-bit value on a GPIO. A fast real-time UART on a oscilliscope for debug.
