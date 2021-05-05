@@ -288,12 +288,13 @@ class ZWaveRSSI():
         if pkt==None:
             print("Unable to get SerialAPI capabilities - exiting")
             exit()
-        (ver, rev, man_id, man_prod_type, man_prod_type_id, supported) = unpack("!2B3H32s", pkt[1:])
+        (ver, rev, mfg_id, man_prod_type, man_prod_type_id, supported) = unpack("!2B3H32s", pkt[1:])
         print("SerialAPI Ver={0}.{1}".format(ver,rev), end='')   # SerialAPI version is different than the SDK version
-        print(" Mfg={:04X} ".format(man_id),end='')
-        if man_id==0: 
+        print(" Mfg={:04X} ".format(mfg_id),end='')
+        if mfg_id==0: 
             print("Silicon Labs ", end='')
         print("ProdID/TypeID={0:02X}:{1:02X}".format(man_prod_type,man_prod_type_id))
+        print("Capabilities={}".format(''.join("%02x " % b for b in supported)))
         pkt=self.Send2ZWave(FUNC_ID_ZW_GET_PROTOCOL_VERSION,True)  # SDK version
         (ProtMaj, ProtMin, ProtRev, ZAFmsb, ZAFlsb) = unpack("!5B", pkt[2:7])
         print("Protocol  Ver={}.{}.{} ZAF={}.{}".format(ProtMaj, ProtMin, ProtRev, ZAFmsb,ZAFlsb))

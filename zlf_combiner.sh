@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Script to combine multiple Z-Wave Zniffer files in a directory into a single file - combined_trace.zlf.
+# A single larger Zniffer file is sometimes easier to debug a problem by gluing all the data into one file.
+# This script has not been extensively tested and was reverse engineered so Use At Your Own Risk.
+
 # Declare a combined file
 COMBINED_FILE=combined_trace.zlf
 
