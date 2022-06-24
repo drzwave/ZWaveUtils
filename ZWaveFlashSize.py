@@ -3,6 +3,11 @@
     This Python program searches thru a GCC .MAP file and sums the flash used 
     in each of several categories.
     This program relies on string matching in the .MAP file to categorize the flash used.
+    Different strings are needed for other types of projects. 
+    Customization for other projects has been enabled by using variables to define the different categories.
+
+    The syntax and format of the .map file is assumed to match the format from the 10.xx release of GCC.
+    Any changes to the format would require some recoding but as you can see this program is pretty simple so it shouldn't be hard.
 
     This program is a DEMO only and is provided AS-IS and without support. 
     But feel free to copy and improve!
@@ -22,31 +27,32 @@ import sys
 import time
 import os
 
-VERSION       = "0.1 - 6/22/2022"       # Version of this python program
+VERSION       = "0.2 - 6/24/2022"       # Version of this python program
 DEBUG         = 10     # [0-10] higher values print out more debugging info - 0=off
 
 '''
-  Categories - not sure how to handle this yet but ideally there's a few strings defined here that in turn filter the data into the appropriate category.
-  DISCARDED - Should I add up all the discarded code? yes! - that comes from the discarded section of the file and the addr is always 0. Filter these down to add up just whats been removed from each obj file. Ends at Memory Configuration
-  FILL  - "*fill* - these are the small blocks used to align the next chunk of code
-  GCC   - "lib/gcc" - libraries out of the GCC compiler this is in the long string of the code
-  GECKO - "gecko_sdk_" - hardware drivers and other platform code (but only after the ones below are already processed) - maybe filter on something else???
-  BOOTLOADER    - "platform/bootloader" - subtract these from GECKO
-  RAIL  - "rail_lib" - subtract from GECKO
-  ZAF   - "z-wave/ZAF" - subtract from GECKO
-  ZWAVE - "z-wave/platform" || "z-wave/ZWave/lib"- subtract from GECKO
-  CRYPTO - "/crypto/" - subtract from GECKO
-  FREERTOS - "/freertos/" - same
-  NVM3CODE - "/nvm3/lib/libnvm3" - same
-
-
   The first line has the total FLASH used it seems - is this without the .fill though? Doesn't quite match the end of the hex file.
   Many lines are broken across 2 so first thing to do is join them together
-  Only look at lines that have .text in them. skip any line missing the size. or .rodata or _cc_handlers? 
   stop when the address is outside of flash (or ORIGIN (RAM))
-
-
 '''
+
+''' Categories is a dictionary of the strings used to categorize each line of the map file
+    The order of the categories is important as the first matching category is the one used.
+    Thus, in the case where 2 or more categories might match the same line, the first one is the one used.
+'''
+categories = {
+ "GCC"          : "/lib/gcc/",      # GCC Libraries
+ "BOOTLOADER"   : "platform/bootloader",    # bootloader code which includes SE interface
+ "RAIL"         : "/rail_lib/",     # Radio Interface
+ "ZAF"          : "/z-wave/ZAF",    # Z-Wave Application Framework
+ "ZWAVE"        : "/z-wave/",       # Z-Wave protocol
+ "CRYPTO"       : "/crypto/",       # Encryption libraries
+ "FREERTOS"     : "/freertos/",     # FreeRTOS 
+ "NVM3CODE"     : "/nvm3/lib/libnvm3",# NVM3
+ "GECKO"        : "gecko_sdk_",     # Gecko platform code - peripheral drivers etc
+ "APPLICATION"  : "/"               # everything left over is assumed to be the application
+}
+
 class ZWaveFlashSize():
     ''' Z-Wave Flash Size Calculator '''
     def __init__(self):         
@@ -93,7 +99,7 @@ class ZWaveFlashSize():
         while True:
             if len(line)>=2 and "Memory" in line[0] and "Configuration" in line[1]: # end of discarded section
                 break
-            elif len(line)==1: # only 1 word which is usually the symbol
+            elif len(line)==1: # only 1 word which is usually the symbol    - TODO is this needed??? getfields handles this on its own
                 line = self.getFields()
             elif len(line)!=4: # skip lines that have the wrong number of fields
                 pass
@@ -110,6 +116,42 @@ class ZWaveFlashSize():
         if DEBUG>3: print("DiscardedSize={}".format(DiscardedSize))
         return(DiscardedSize)
                 
+    def findTextSize(self):
+        ''' scan thru the .map file to find the first .text line in the memory map and return the total .text size'''
+        line = []
+        while True:
+            if len(line)!=3:
+                line = self.getFields()
+            elif ".text" not in line[0]:
+                line = self.getFields()
+            else:
+                break
+        return(int(line[2],16))
+            
+    def CalculateMap(self):
+        ''' scan thru the map file and calculate and return the size of each category'''
+        size = {"FILL" : 0} # start with the fill category which is special
+        for cat in categories.keys():
+            size[cat]=0
+        line=[]
+        while True:
+            if len(line)==4:
+                for cat in categories.keys():
+                    if categories[cat] in line[3]:
+                        size[cat] += int(line[2],16)
+                        if DEBUG>5: print("categorty={} size={} added {} line= {}".format(cat,size[cat],int(line[2],16),line))
+                        break
+            elif len(line)==3:
+                if "*fill*" in line[0]:
+                    size["FILL"] += int(line[2],16)
+            elif len(line)>=1:          # end of the .text section starts with the .stack in RAM
+                if ".stack" in line[1]:
+                    break
+            line = self.getFields()
+        for cat in size.keys():
+            print("Category {} Size={}".format(cat,size[cat]))
+        return(size)
+            
 
     def usage():
         print("")
@@ -123,6 +165,9 @@ if __name__ == "__main__":
     try:
         self=ZWaveFlashSize()       # open the .MAP file
         DiscardedSize = self.CalculateDiscarded()   # Calculate the discarded code size which is usually huge since it has a ton of debugging info in it
+        textsize = self.findTextSize()              # find the .text total size line
+        print("textsize={}".format(textsize))
+        self.CalculateMap()
 
     except Exception as err:
         print("Error {}".format(err.args))
