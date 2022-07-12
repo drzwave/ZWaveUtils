@@ -1,4 +1,4 @@
-''' Z-Wave FLASH size calculator
+''' Z-Wave FLASH/RAM size calculator
 
     This Python program searches thru a GCC .MAP file and sums the flash used 
     in each of several categories.
@@ -10,10 +10,10 @@
     Any changes to the format would require some recoding but as you can see this program is pretty simple so it shouldn't be hard.
 
     The accuracy of the size calculations and the categorization depends on many factors mostly around the format of the .map file.
-    Do NOT expect the size calculations to be accurate down to the byte. Expect maybe 1/2K byte accuracy.
+    Do NOT expect the size calculations to be accurate down to the byte. Expect maybe +/- 100 byte accuracy.
     Accuracy all depends on how well the very simple strings in categories match the map file.
     Feel free to customize the category strings to improve their accuracy. 
-    Set DEBUG=9 to see how the categories are matching the map file.
+    Set DEBUG=9 to see how the categories are matching the map file. Look for UNKNOWN category which means nothing is matching.
 
     This program is a DEMO only and is provided AS-IS and without support. 
     But feel free to copy and improve!
@@ -21,7 +21,7 @@
     Usage: python ZWaveFlashSize.py <filename>.axf
 
    Testing:
-    This program was tested in Windows and may require some tweaks for other platforms.
+    This program was tested in Windows and may require some tweaks for other platforms and uses Python3.
 
    Resources:
    https://community.silabs.com/s/article/interpreting-the-gcc-map-file-in-simplicity-ide
@@ -34,35 +34,50 @@ import time
 import os
 import string
 
-VERSION       = "0.8 - 6/28/2022"       # Version of this python program
-DEBUG         = 3     # [0-10] higher values print out more debugging info - 0=off
+VERSION       = "0.9 - 7/12/2022"       # Version of this python program
+DEBUG         = 1     # [0-10] higher values print out more debugging info - 0=off
 
 '''
-  The first line has the total FLASH used it seems - is this without the .fill though? Doesn't quite match the end of the hex file.
   Many lines are broken across 2 so first thing to do is join them together
   stop when the address is outside of flash (or ORIGIN (RAM))
 '''
 
-''' Categories is a dictionary of the strings used to categorize each line of the map file
+#################Customize these Dictionaries to match your .MAP file ################################
+''' FlashCategories is a dictionary of the strings used to categorize each line of the map file
     The ORDER of the categories is important as the first matching category is the one used.
     Thus, in the case where 2 or more categories might match the same line, the first one is selected.
     This section can be customized for any type of project - this one is specific to Z-Wave for GSDK 4.1.
 '''
-categories = {
+FlashCategories = {
  "GCC"          : "/lib/gcc/",      # GCC Libraries
  "BOOTLOADER"   : "platform/bootloader",# bootloader INTERFACE code (does NOT include the bootloader itself)
  "RAIL"         : "/rail_lib/",     # Radio Interface
  "NVM3CODE"     : "nvm3",           # NVM3
  "CRYPTO"       : "/crypto/",       # Encryption libraries
  "FREERTOS"     : "/freertos/",     # FreeRTOS 
- "ZAF"          : "/ZAF",    # Z-Wave Application Framework
+ "ZAF"          : "/ZAF",           # Z-Wave Application Framework
  "ZWAVE"        : "/z-wave/",       # Z-Wave protocol
  "GECKO"        : "gecko_sdk_",     # Gecko platform code - peripheral drivers etc
  "APPLICATION"  : "/"               # everything left over is assumed to be the application
 }
 
+''' RAMCategories is the same concept as above but for RAM '''
+RAMCategories = {
+ "Stack"        : "QQstack",        # CPU Stack is a special category which has to match the NAME field instead of the file field
+ "Heap"         : "QQheap",         # CPU heap
+ "BOOTLOADER"   : "platform/bootloader",# bootloader INTERFACE code (does NOT include the bootloader itself)
+ "RAIL"         : "/rail_lib/",     # Radio Interface
+ "CRYPTO"       : "/crypto/",       # Encryption libraries
+ "FREERTOS"     : "/freertos/",     # FreeRTOS 
+ "ZAF"          : "/ZAF",           # Z-Wave Application Framework
+ "ZWAVE"        : "/z-wave/",       # Z-Wave protocol
+ "Platform"     : "/platform",      # Platform code (clocks, power mgr, drivers, etc)
+ "APPLICATION"  : "/"               # everything left over is assumed to be the application
+}
+###################################################################################################
+
 class ZWaveFlashSize():
-    ''' Z-Wave Flash Size Calculator '''
+    ''' Z-Wave Flash/RAM Size Calculator '''
     def __init__(self):         
         ''' open the .map file and instance some structures '''
         if len(sys.argv)==1:    # no arguments
@@ -75,16 +90,29 @@ class ZWaveFlashSize():
 
 
     def getFields(self):
-        ''' Return the next line of the map file which has 4 fields - Type, address, size, filename
-            The line of text is often broken across 2 lines in the file if the Type is too long'''
+        ''' Return the next line of the map file which has 4 fields - Type.symbol, address, size, filename
+            The line of text is often broken across 2 lines in the file if the Type is too long.
+            Skip lines that don't match the necessary format.
+        '''
         s2 = ""
-        s1 = self.mapfile.readline()
-        if not s1:       # if EOF
-            raise ValueError("EOF found prematurely")
-        if len(s1.split()) == 1: # if the line only has the symbol on it, concatenate the next line which has the rest of the fields
-            s2 = self.mapfile.readline()
-        s3 = s1 + s2
-        return(s3.split())
+        while (True):
+            s1 = self.mapfile.readline()
+            if not s1:       # if EOF
+                raise ValueError("EOF found prematurely")
+            if (len(s1.split()) == 3 or len(s1.split()) == 4) and ZWaveFlashSize.isHex(s1.split()[1]) and ZWaveFlashSize.isHex(s1.split()[2]):
+                # if 3 or 4 fields found and addr/len is hex, then return them, otherwise more processing required
+                break
+            elif len(s1.split()) == 1: # if the line only has the type.symbol on it, concatenate the next line which often has the rest of the fields
+                    s2 = s1             # save the type.symbol
+            elif len(s1.split()) == 3:
+                if ZWaveFlashSize.isHex(s1.split()[0]): # most common is the Type is on one line followed by the other 3 fields on the next line
+                    s1 = s2 + s1
+                    break           # found all 4 fields and the address is hex so looks like a good line - return them
+                else:
+                    if DEBUG>9: print("  -discarded {}".format(s1))
+            else:
+                if DEBUG>9: print("  -Discarded {}".format(s1))
+        return(s1.split())
 
 
     def findDiscarded(self):
@@ -105,22 +133,15 @@ class ZWaveFlashSize():
         largestSize=0
         line = []
         while True:
-            if len(line)>=2 and "Memory" in line[0] and "Configuration" in line[1]: # end of discarded section
-                break
-            elif len(line)==1: # only 1 word which is usually the symbol    - TODO is this needed??? getfields handles this on its own
-                line = self.getFields()
-            elif len(line)!=4: # skip lines that have the wrong number of fields
-                pass
-            else:
-                try:
-                    size = int(line[2],16)
-                    DiscardedSize += size
-                    if largestSize<size:
-                        largestSize=size
-                        if DEBUG>8: print("largest Discard so far={} {}".format(size, line[3]))
-                except: # skip the line if size isn't hex
-                    if DEBUG>5: print("size is not hex {}".format(line))
             line = self.getFields() # get the next line
+            if len(line)>=2 and "FLASH" in line[0]: # end of discarded section (Memory Configuration section lists the size of FLASH and RAM)
+                break
+            elif len(line)>=2:
+                size = int(line[2],16)
+                DiscardedSize += size
+                if largestSize<size:
+                    largestSize=size
+                    if DEBUG>8: print("largest Discard so far={} {}".format(size, line[3]))
         if DEBUG>6: print("DiscardedSize={}".format(DiscardedSize))
         return(DiscardedSize)
                 
@@ -143,10 +164,13 @@ class ZWaveFlashSize():
         except ValueError:
             return False
 
-    def CalculateMap(self):
-        ''' scan thru the map file and calculate and return the size of each category'''
+    def CalculateFLASH(self):
+        ''' scan thru the map file and calculate and return the size of each category
+            Start with the .text line and end with the .stack line
+        '''
+        if DEBUG>5: print("Begin FLASH")
         size = {"FILL" : 0} # start with the fill category which is special
-        for cat in categories.keys():   # instantiate the dict
+        for cat in FlashCategories.keys():   # instantiate the dict
             size[cat]=0
         line=[]
         while True:                     # read each line of the .MAP file and add the size to the respective category
@@ -156,13 +180,13 @@ class ZWaveFlashSize():
                 if DEBUG>8: print(" - Not Hex {}".format(line))
             elif len(line)==4:
                 found=False
-                for cat in categories.keys():
-                    if categories[cat] in line[3]:
+                for cat in FlashCategories.keys():
+                    if FlashCategories[cat] in line[3]:
                         found=True
                         size[cat] += int(line[2],16)
                         if DEBUG>5: print("Category={} size={} added {} line= {}".format(cat,size[cat],int(line[2],16),line))  # Set DEBUG above this value to check the categorization
                         break
-                if not found and DEBUG>8: print(" - No category for line={}".format(line))
+                if not found and DEBUG>8: print(" -UNKNOWN No category for line={}".format(line))
             elif len(line)==3:  # the fill lines don't have a file name field
                 if "*fill*" in line[0]:
                     size["FILL"] += int(line[2],16)
@@ -178,6 +202,48 @@ class ZWaveFlashSize():
             line = self.getFields() # get the next line
         return(size)
             
+
+    def CalculateRAM(self):
+        ''' scan thru the map file and calculate and return the size of each category.
+            Start with the .stack line and end with the .heap line.
+            Assume the MAP file is already pointing at the STACK line when called.
+        '''
+        if DEBUG>5: print("Begin RAM")
+        size = {"FILL" : 0} # start with the fill category which is special
+        for cat in RAMCategories.keys():   # instantiate the dict
+            size[cat]=0
+        line=[]
+        done=False
+        while not done:                     # read each line of the .MAP file and add the size to the respective category
+            line = self.getFields()     # get the next line
+            if len(line)<3:             # ignore lines with less than 3
+                if DEBUG>9: print(" - Ignored {}".format(line))
+            elif len(line)==4:
+                found=False
+                for cat in RAMCategories.keys():
+                    if ".stack" in line[0]:
+                        found=True
+                        size["Stack"] += int(line[2],16)
+                        if DEBUG>5: print("Stack={}".format(size["Stack"]))
+                        break
+                    if ".heap" in line[0]:
+                        found=True
+                        done=True
+                        size["Heap"] += int(line[2],16)
+                        break
+                    elif RAMCategories[cat] in line[3]:
+                        found=True
+                        size[cat] += int(line[2],16)
+                        if DEBUG>5: print("RAM Category={} size={} added {} line= {}".format(cat,size[cat],int(line[2],16),line))  # Set DEBUG above this value to check the categorization
+                        break
+                if not found and DEBUG>8: print(" -UNKNOWN No category for line={}".format(line))
+            elif len(line)==3:  # the fill lines don't have a file name field
+                if "*fill*" in line[0]:
+                    size["FILL"] += int(line[2],16)
+                elif DEBUG>8: print(" - Skipped line={}".format(line))
+            else:
+                if DEBUG>8: print(" - Dropped line {}".format(line))
+        return(size)
 
     def usage():
         print("")
@@ -197,12 +263,20 @@ if __name__ == "__main__":
 
     DiscardedSize = self.CalculateDiscarded()   # Calculate the discarded code size which is usually huge since it has a ton of debugging info in it
     TextSize = self.findTextSize()              # find the .text total size line
-    size = self.CalculateMap()                  # categorize each line of the .map file and sum up the size in each
+    flash   = self.CalculateFLASH()             # categorize each line of the FLASH section of the .map file and sum up the size in each
+    ram     = self.CalculateRAM()               # categorize each line of the RAM section of the .map file and sum up the size in each
     total=0
-    for cat in size.keys():                     # print out the results
-        print("Category {:11s} Size={:>6.1f}KB".format(cat,round(size[cat]/1024,1)))
-        total += size[cat]
-    print("Categories Total={}KB {}% of 800 series FLASH (240K max)".format(round(total/1024,1),round(total*100/(240*1024),1)))
+    print("FLASH:")
+    for cat in flash.keys():                     # print out the results
+        print("Category {:11s} Size={:>6.1f}KB".format(cat,round(flash[cat]/1024,1)))
+        total += flash[cat]
+    print("FLASH Total={}KB {}% of 800 series FLASH (240K max)".format(round(total/1024,1),round(total*100/(240*1024),1)))
+    print("RAM:")
+    ramtotal=0
+    for cat in ram.keys():                     # print out the results
+        print("Category {:11s} Size={:>6.1f}KB".format(cat,round(ram[cat]/1024,1)))
+        ramtotal += ram[cat]
+    print("RAM Total={}KB {}% of RAM (64K max)".format(round(ramtotal/1024,1),round(ramtotal*100/(64*1024),1)))
     if DEBUG>4: print("TextSize={} {}KB".format(TextSize,round(TextSize/1024,1)))
     if DEBUG>5: print("DiscardedSize={} {}KB".format(DiscardedSize,round(DiscardedSize/1024,1)))
 
