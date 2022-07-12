@@ -24,7 +24,7 @@ No rights reserved. Please feel free to copy and enhance.
     - First step in upgrading a controller from a 500 series to 700 series without having to rebuild the network
 3. ZWaveRSSI.py - Python program that reads the background RSSI values via the SerialAPI
 4. zlf\_combiner.sh - bash script that concatenates all \*.zlf trace files in the folder the script is run from into one file, `combined_trace.zlf`.
-5. ZWaveFlasgSize.py - Python program that reads in the .MAP file and prints out categories for the percentage of FLASH for each.
+5. ZWaveFlashSize.py - Python program that reads in the .MAP file and prints out the percentage of FLASH and RAM used for various categories.
 
 # Future Utilities (no schedule so don't hold me to them!)
 
